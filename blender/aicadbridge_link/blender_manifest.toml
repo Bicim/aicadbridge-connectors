@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+id = "aicadbridge_link"
+version = "0.2.0"
+name = "AICADBridge Link"
+tagline = "Import parametric CAD models generated in AICADBridge"
+maintainer = "Biçim"
+type = "add-on"
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Import-Export"]
+
+[permissions]
+network = "Receive models sent from the AICADBridge web app"
+files = "Save downloaded models to a temporary folder"
