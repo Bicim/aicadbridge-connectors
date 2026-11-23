@@ -1,6 +1,6 @@
 """Build the plugin zips (common/aicad_link.py is copied into each).
 
-Usage: python tools/bundle.py [OUT_DIR]   (default: ../aicadbridge-web/downloads)
+Usage: python tools/bundle.py [OUT_DIR]   (default: <repo>/dist/plugins; never writes outside this repo unless you pass a path)
 The release workflow attaches these zips to the GitHub release under exactly these names."""
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUT = ROOT.parent / "aicadbridge-web" / "downloads"
+DEFAULT_OUT = ROOT / "dist" / "plugins"
 COMMON = ROOT / "common" / "aicad_link.py"
 
 PACKAGES = {

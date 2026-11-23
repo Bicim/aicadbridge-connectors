@@ -47,7 +47,7 @@ Her sürümde `AICADBridgeSetup.exe` ile birlikte yayınlanır (`releases/latest
 `AICADBridgeLink-rhino.zip`; `AICADBridgeLink-solidworks.zip` eski bağlantılar için `desktop` ile aynıdır. Hepsi canlı sunucu varsayılanlı `aicad_link.py` içerir.
 
 ```
-python tools/bundle.py [ÇIKIŞ_KLASÖRÜ]   # zip'leri üretir (varsayılan ../aicadbridge-web/downloads)
+python tools/bundle.py [ÇIKIŞ_KLASÖRÜ]   # zip'leri üretir (varsayılan dist/plugins)
 python -m pytest -q tests                # test_link.py canlı API ister (yoksa atlanır)
 ```
 
