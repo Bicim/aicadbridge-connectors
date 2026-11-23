@@ -404,14 +404,6 @@ def install_host(host: str, det: dict, env=None) -> Path:
 # --------------------------------------------------------------------------- state / pairing
 
 
-def state_path(host: str, state_dir=None) -> Path:
-    return Path(state_dir or Path.home() / ".aicadbridge") / f"{host}.json"
-
-
-def has_token(host: str, state_dir=None) -> bool:
-    return aicad_link.LinkClient(host, state_dir=state_dir).paired
-
-
 def check_connection(host: str, state_dir=None) -> str:
     """'connected' | 'disconnected' | 'unreachable'. Makes a network call: run off the UI thread."""
     c = aicad_link.LinkClient(host, state_dir=state_dir)

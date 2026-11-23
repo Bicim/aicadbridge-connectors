@@ -40,9 +40,15 @@ Web'den bağlantı kaldırılınca anahtar bir sonraki çağrıda geçersizleşi
 Sunucu adresi: varsayılan `https://aicad.92-5-107-17.sslip.io`. Blender eklenti tercihlerinde,
 masaüstü köprüsünde `--server` ile; ya da `AICAD_API_URL` ortam değişkeni.
 
+## Eklenti zip'leri (elle kurulum)
+
+Her sürümde `AICADBridgeSetup.exe` ile birlikte yayınlanır (`releases/latest/download/<ad>`):
+`AICADBridgeLink-fusion.zip`, `aicadbridge_link-blender.zip`, `AICADBridgeLink-desktop.zip` (SolidWorks, Inventor, Solid Edge, CATIA, AutoCAD, STEP klasörü),
+`AICADBridgeLink-rhino.zip`; `AICADBridgeLink-solidworks.zip` eski bağlantılar için `desktop` ile aynıdır. Hepsi canlı sunucu varsayılanlı `aicad_link.py` içerir.
+
 ```
-python tools/bundle.py          # ../aicadbridge-web/downloads/*.zip üretir
-python -m pytest -q tests       # canlı API + yerel Supabase ile uçtan uca
+python tools/bundle.py [ÇIKIŞ_KLASÖRÜ]   # zip'leri üretir (varsayılan ../aicadbridge-web/downloads)
+python -m pytest -q tests                # test_link.py canlı API ister (yoksa atlanır)
 ```
 
 Lisans: `blender/` altındaki eklenti (ve onunla dağıtılan `aicad_link.py` kopyası) GPL-3.0-or-later, bkz. `blender/aicadbridge_link/LICENSE`. Diğer dosyalar için lisans henüz belirlenmedi.

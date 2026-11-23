@@ -232,10 +232,10 @@ def test_manifest_and_default_server():
 
 def test_state_file_and_connection_without_network(tmp_path):
     assert s.check_connection("fusion", state_dir=tmp_path) == "disconnected"
-    assert not s.has_token("fusion", state_dir=tmp_path)
-    p = s.state_path("fusion", tmp_path)
+    assert not s.aicad_link.LinkClient("fusion", state_dir=tmp_path).paired
+    p = s.aicad_link.LinkClient("fusion", state_dir=tmp_path).state_path
     p.write_text(json.dumps({"server": "http://127.0.0.1:1", "token": "t", "device_id": "d"}), encoding="utf-8")
-    assert s.has_token("fusion", state_dir=tmp_path)
+    assert s.aicad_link.LinkClient("fusion", state_dir=tmp_path).paired
     assert s.check_connection("fusion", state_dir=tmp_path) == "unreachable"  # closed port, no real network
 
 
@@ -252,7 +252,7 @@ def test_pair_blocking_writes_state(tmp_path, monkeypatch):
     codes, opened = [], []
     assert s.pair_blocking("blender", codes.append, state_dir=tmp_path, open_browser=opened.append, interval=0)
     assert codes == ["ABCD-1234"] and opened == ["https://x/v"]
-    saved = json.loads(s.state_path("blender", tmp_path).read_text(encoding="utf-8"))
+    saved = json.loads(s.aicad_link.LinkClient("blender", state_dir=tmp_path).state_path.read_text(encoding="utf-8"))
     assert saved["token"] == "tok" and saved["device_id"] == "dev"
 
 

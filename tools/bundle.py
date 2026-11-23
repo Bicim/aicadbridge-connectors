@@ -1,4 +1,7 @@
-"""Build the plugin zips into aicadbridge-web/downloads (common/aicad_link.py is copied into each)."""
+"""Build the plugin zips (common/aicad_link.py is copied into each).
+
+Usage: python tools/bundle.py [OUT_DIR]   (default: ../aicadbridge-web/downloads)
+The release workflow attaches these zips to the GitHub release under exactly these names."""
 from __future__ import annotations
 
 import shutil
@@ -7,7 +10,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT.parent / "aicadbridge-web" / "downloads"
+DEFAULT_OUT = ROOT.parent / "aicadbridge-web" / "downloads"
 COMMON = ROOT / "common" / "aicad_link.py"
 
 PACKAGES = {
@@ -21,7 +24,8 @@ PACKAGES = {
 }
 
 
-def build() -> list[Path]:
+def build(out: Path | str | None = None) -> list[Path]:
+    OUT = Path(out) if out else DEFAULT_OUT
     OUT.mkdir(parents=True, exist_ok=True)
     made = []
     for name, (src, folder) in PACKAGES.items():
@@ -37,5 +41,7 @@ def build() -> list[Path]:
 
 
 if __name__ == "__main__":
-    build()
-    shutil.copy(ROOT / "README.md", OUT / "README.md") if (ROOT / "README.md").exists() else None
+    out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_OUT
+    build(out_dir)
+    if (ROOT / "README.md").exists():
+        shutil.copy(ROOT / "README.md", out_dir / "README.md")
