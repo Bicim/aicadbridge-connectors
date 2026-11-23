@@ -4,7 +4,7 @@
   "id": "6f1c2a0e-4b7d-4c1e-9a55-2f0d9b3c7a11",
   "author": "Biçim",
   "description": { "": "AICADBridge Link: web'de üretilen modelleri Fusion 360'a aktarır." },
-  "version": "0.3.0",
+  "version": "0.4.0",
   "runOnStartup": true,
   "supportedOS": "windows|mac",
   "editEnabled": true

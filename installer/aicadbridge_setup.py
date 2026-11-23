@@ -1,4 +1,7 @@
-"""AICADBridge Kurulumu — one-window installer + pairing helper for Fusion, Blender and SolidWorks.
+"""AICADBridge Kurulumu — one-window installer + pairing helper for Fusion, Blender, SolidWorks, Inventor,
+Solid Edge, CATIA V5, AutoCAD, Rhino 8 and a generic "STEP klasörü".
+
+`AICADBridgeSetup.exe --bridge <host>` runs the desktop bridge headless (no installer window).
 
 Pure logic lives at the top (testable without a GUI); the tkinter app is at the bottom.
 Frozen with PyInstaller the plugin payloads are read from sys._MEIPASS, otherwise from the repo.
@@ -30,8 +33,15 @@ import aicad_link  # noqa: E402
 
 VERSION = aicad_link.VERSION
 VERSION_MARKER = ".aicad_version"
-HOSTS = ("fusion", "blender", "solidworks")
-HOST_LABEL = {"fusion": "Autodesk Fusion", "blender": "Blender", "solidworks": "SolidWorks"}
+HOSTS = ("fusion", "blender", "solidworks", "inventor", "solidedge", "catia", "autocad", "rhino", "other")
+HOST_LABEL = {"fusion": "Autodesk Fusion", "blender": "Blender", "solidworks": "SolidWorks",
+              "inventor": "Autodesk Inventor", "solidedge": "Siemens Solid Edge", "catia": "CATIA V5",
+              "autocad": "AutoCAD", "rhino": "Rhino 8", "other": "STEP klasörü (diğer programlar)"}
+# short names for desktop shortcuts ("AICADBridge <name>.bat")
+SHORT_NAME = {"solidworks": "SolidWorks", "inventor": "Inventor", "solidedge": "Solid Edge", "catia": "CATIA",
+              "autocad": "AutoCAD", "other": "STEP klasörü"}
+COM_HOSTS = tuple(SHORT_NAME)  # served by desktop/aicadbridge_desktop.py (COM or STEP inbox)
+BETA_HOSTS = ("inventor", "solidedge", "catia", "autocad", "rhino")
 IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
 
 
@@ -51,6 +61,25 @@ def reg_key_exists(root_name: str, path: str) -> bool:
             return True
     except Exception:
         return False
+
+
+def reg_subkeys(root_name: str, path: str) -> list[str]:
+    """Sub-key names of an HKLM/HKCU key. Never raises; [] when missing."""
+    try:
+        import winreg
+        root = {"HKLM": winreg.HKEY_LOCAL_MACHINE, "HKCU": winreg.HKEY_CURRENT_USER}[root_name]
+        out = []
+        with winreg.OpenKey(root, path) as k:
+            i = 0
+            while True:
+                try:
+                    out.append(winreg.EnumKey(k, i))
+                except OSError:
+                    break
+                i += 1
+        return out
+    except Exception:
+        return []
 
 
 # --------------------------------------------------------------------------- detection
@@ -109,19 +138,101 @@ def detect_blender(env=None, reg=reg_key_exists) -> dict:
             "exe": exes[0] if exes else None}
 
 
-def solidworks_dir(env=None) -> Path | None:
+def bridge_root(env=None) -> Path | None:
     local = _env(env).get("LOCALAPPDATA")
-    return Path(local) / "AICADBridge" / "solidworks" if local else None
+    return Path(local) / "AICADBridge" if local else None
+
+
+def desktop_dir(env=None) -> Path | None:
+    """Shared folder of the desktop bridge (script + aicad_link.py)."""
+    r = bridge_root(env)
+    return r / "desktop" if r else None
+
+
+def desktop_host_dir(host: str, env=None) -> Path | None:
+    """Per-host folder (version marker + shortcut .bat) inside the shared desktop folder."""
+    d = desktop_dir(env)
+    return d / host if d else None
+
+
+def bridge_exe_path(env=None) -> Path | None:
+    r = bridge_root(env)
+    return r / "AICADBridge.exe" if r else None
+
+
+def _program_files_glob(e, *patterns: str) -> list[str]:
+    out: list[str] = []
+    for var in ("ProgramFiles", "ProgramFiles(x86)"):
+        pf = e.get(var)
+        if pf:
+            for pat in patterns:
+                out += glob.glob(str(Path(pf) / pat))
+    return out
+
+
+def _reg_any(reg, *paths: str) -> bool:
+    return any(reg(r, p) for p in paths for r in ("HKLM", "HKCU"))
+
+
+def _com_result(host: str, e, found: bool, exes: list[str]) -> dict:
+    return {"found": bool(found), "install_dir": desktop_host_dir(host, e), "exe": exes[0] if exes else None}
 
 
 def detect_solidworks(env=None, reg=reg_key_exists) -> dict:
-    found = any(reg(r, r"SOFTWARE\SolidWorks") for r in ("HKLM", "HKCU"))
-    return {"found": found, "install_dir": solidworks_dir(env)}
+    return _com_result("solidworks", _env(env), _reg_any(reg, r"SOFTWARE\SolidWorks"), [])
 
 
-def detect_all(env=None, reg=reg_key_exists) -> dict:
+def detect_inventor(env=None, reg=reg_key_exists) -> dict:
+    e = _env(env)
+    exes = _program_files_glob(e, "Autodesk/Inventor */Bin/Inventor.exe")
+    return _com_result("inventor", e, exes or _reg_any(reg, r"SOFTWARE\Autodesk\Inventor"), exes)
+
+
+def detect_solidedge(env=None, reg=reg_key_exists) -> dict:
+    e = _env(env)
+    exes = _program_files_glob(e, "Siemens/Solid Edge*/Program/Edge.exe")
+    hit = exes or _reg_any(reg, r"SOFTWARE\Unigraphics Solutions\Solid Edge", r"SOFTWARE\Siemens\Solid Edge")
+    return _com_result("solidedge", e, hit, exes)
+
+
+def detect_catia(env=None, reg=reg_key_exists, subkeys=reg_subkeys) -> dict:
+    """CATIA V5 registers release folders such as B28 under SOFTWARE\\Dassault Systemes."""
+    e = _env(env)
+    exes = _program_files_glob(e, "Dassault Systemes/B*/win_b64/code/bin/CNEXT.exe")
+    bases = (r"SOFTWARE\Dassault Systemes", r"SOFTWARE\WOW6432Node\Dassault Systemes")
+    hit = bool(exes) or any(re.fullmatch(r"B\d+", k, re.I) for b in bases for r in ("HKLM", "HKCU")
+                            for k in subkeys(r, b))
+    return _com_result("catia", e, hit, exes)
+
+
+def detect_autocad(env=None, reg=reg_key_exists) -> dict:
+    e = _env(env)
+    exes = _program_files_glob(e, "Autodesk/AutoCAD */acad.exe")
+    return _com_result("autocad", e, exes or _reg_any(reg, r"SOFTWARE\Autodesk\AutoCAD"), exes)
+
+
+def rhino_scripts_dir(env=None) -> Path | None:
+    appdata = _env(env).get("APPDATA")
+    return Path(appdata) / "McNeel" / "Rhinoceros" / "8.0" / "scripts" if appdata else None
+
+
+def detect_rhino(env=None, reg=reg_key_exists) -> dict:
+    e = _env(env)
+    exes = _program_files_glob(e, "Rhino 8/System/Rhino.exe")
+    found = bool(exes) or _reg_any(reg, r"SOFTWARE\McNeel\Rhinoceros\8.0")
+    return {"found": found, "install_dir": rhino_scripts_dir(e), "exe": exes[0] if exes else None}
+
+
+def detect_other(env=None) -> dict:
+    """"STEP klasörü" works with any program, so it is always available."""
+    return _com_result("other", _env(env), True, [])
+
+
+def detect_all(env=None, reg=reg_key_exists, subkeys=reg_subkeys) -> dict:
     return {"fusion": detect_fusion(env), "blender": detect_blender(env, reg),
-            "solidworks": detect_solidworks(env, reg)}
+            "solidworks": detect_solidworks(env, reg), "inventor": detect_inventor(env, reg),
+            "solidedge": detect_solidedge(env, reg), "catia": detect_catia(env, reg, subkeys),
+            "autocad": detect_autocad(env, reg), "rhino": detect_rhino(env, reg), "other": detect_other(env)}
 
 
 # --------------------------------------------------------------------------- versions
@@ -180,19 +291,87 @@ def install_blender(addons_dir: Path, root: Path | None = None) -> Path:
     return dest
 
 
-def install_solidworks(install_dir: Path, root: Path | None = None, desktop: Path | None = None) -> Path:
-    src = (root or ROOT) / "solidworks"
+def bridge_bat(host: str, exe: Path | None = None, script: Path | None = None) -> str:
+    """Shortcut script that starts the desktop bridge detached: the bundled exe when available,
+    otherwise pythonw (no console window) with a plain python fallback."""
+    # chcp 65001: the file is UTF-8 so non-ASCII user-profile paths survive
+    if exe is not None:
+        return f'@echo off\r\nchcp 65001 >nul\r\nstart "" "{exe}" --bridge {host}\r\n'
+    return ("@echo off\r\n"
+            "chcp 65001 >nul\r\n"
+            "where pythonw >nul 2>nul\r\n"
+            "if %errorlevel%==0 (\r\n"
+            f'  start "" pythonw "{script}" --host {host} --headless\r\n'
+            ") else (\r\n"
+            f'  python "{script}" --host {host}\r\n'
+            ")\r\n")
+
+
+def _copy_exe(src: Path, dest: Path) -> bool:
+    """Copy the frozen exe to its permanent location. False when it could not be refreshed
+    (e.g. the previous copy is running and locked) but an older copy exists."""
+    src, dest = Path(src), Path(dest)
+    try:
+        if dest.exists() and src.resolve() == dest.resolve():
+            return True
+    except OSError:
+        pass
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".exe.new")
+    try:
+        shutil.copy2(src, tmp)
+        os.replace(tmp, dest)
+        return True
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if dest.exists():
+            return False
+        raise
+
+
+def install_desktop_host(host: str, install_dir: Path, root: Path | None = None, desktop: Path | None = None,
+                         exe: Path | None = None, exe_dest: Path | None = None) -> Path:
+    """Install the generic desktop bridge for one COM host (or the STEP folder).
+
+    Shared files go to install_dir.parent (aicadbridge_desktop.py, aicad_link.py, run.bat); install_dir holds the
+    version marker and the shortcut .bat. With `exe` (the frozen installer) the shortcut starts
+    `AICADBridge.exe --bridge <host>`, so no Python is needed on the user's PC."""
+    if host not in COM_HOSTS:
+        raise ValueError(host)
+    src = (root or ROOT) / "desktop"
     dest = Path(install_dir)
+    shared = dest.parent
+    shared.mkdir(parents=True, exist_ok=True)
+    for name in ("aicadbridge_desktop.py", "run.bat"):
+        shutil.copy2(src / name, shared / name)
+    shutil.copy2(ROOT / "common" / "aicad_link.py", shared / "aicad_link.py")
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True)
-    for name in ("aicadbridge_sw_link.py", "run.bat"):
-        shutil.copy2(src / name, dest / name)
-    shutil.copy2(ROOT / "common" / "aicad_link.py", dest / "aicad_link.py")
+    runner = None
+    if exe is not None:
+        target_exe = Path(exe_dest) if exe_dest else shared.parent / "AICADBridge.exe"
+        _copy_exe(Path(exe), target_exe)
+        runner = target_exe
+    bat = bridge_bat(host, exe=runner, script=shared / "aicadbridge_desktop.py")
+    name = f"AICADBridge {SHORT_NAME[host]}.bat"
+    (dest / name).write_bytes(bat.encode("utf-8"))  # bytes: write_text would turn \r\n into \r\r\n on Windows
     (dest / VERSION_MARKER).write_text(VERSION, encoding="utf-8")
     if desktop is not None and Path(desktop).is_dir():
-        (Path(desktop) / "AICADBridge SolidWorks.bat").write_text(
-            f'@echo off\r\ncall "{dest / "run.bat"}"\r\n', encoding="utf-8")
+        (Path(desktop) / name).write_bytes(bat.encode("utf-8"))
+    return dest
+
+
+def install_rhino(scripts_dir: Path, root: Path | None = None) -> Path:
+    """Rhino 8 script + aicad_link.py into the Rhino scripts folder (run with RunPythonScript)."""
+    dest = Path(scripts_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2((root or ROOT) / "rhino" / "AICADBridgeLink.py", dest / "AICADBridgeLink.py")
+    shutil.copy2(ROOT / "common" / "aicad_link.py", dest / "aicad_link.py")
+    (dest / VERSION_MARKER).write_text(VERSION, encoding="utf-8")
     return dest
 
 
@@ -201,8 +380,8 @@ def target_for(host: str, det: dict) -> Path | None:
         return fusion_target(det["fusion"]["addins_dir"])
     if host == "blender" and det["blender"]["addons_dir"]:
         return blender_target(det["blender"]["addons_dir"])
-    if host == "solidworks":
-        return det["solidworks"]["install_dir"]
+    if host in COM_HOSTS or host == "rhino":
+        return det[host]["install_dir"]
     return None
 
 
@@ -211,9 +390,14 @@ def install_host(host: str, det: dict, env=None) -> Path:
         return install_fusion(det["fusion"]["addins_dir"])
     if host == "blender":
         return install_blender(det["blender"]["addons_dir"])
-    if host == "solidworks":
-        up = _env(env).get("USERPROFILE")
-        return install_solidworks(det["solidworks"]["install_dir"], desktop=Path(up) / "Desktop" if up else None)
+    if host == "rhino":
+        return install_rhino(det["rhino"]["install_dir"])
+    if host in COM_HOSTS:
+        e = _env(env)
+        up = e.get("USERPROFILE")
+        exe = Path(sys.executable) if getattr(sys, "frozen", False) else None
+        return install_desktop_host(host, det[host]["install_dir"], desktop=Path(up) / "Desktop" if up else None,
+                                    exe=exe, exe_dest=bridge_exe_path(e))
     raise ValueError(host)
 
 
@@ -266,6 +450,34 @@ def pair_blocking(host: str, on_code, state_dir=None, open_browser=webbrowser.op
                               should_stop=should_stop)
 
 
+def install_note_text(host: str) -> str:
+    if host == "fusion":
+        return "Fusion'u yeniden başlat; araç çubuğunda AICADBridge düğmesi görünecek."
+    if host == "blender":
+        return ("Blender eklentisi kuruldu. Görünmüyorsa: Düzen › Tercihler › Eklentiler › "
+                "'AICADBridge Link' kutusunu işaretle.")
+    if host == "rhino":
+        return ("Rhino betiği kuruldu. Rhino'da komut satırına RunPythonScript yaz ve AICADBridgeLink.py "
+                "dosyasını seç (her Rhino oturumunda bir kez).")
+    if host == "other":
+        return ("STEP klasörü köprüsü kuruldu (masaüstünde 'AICADBridge STEP klasörü'). Model gelince "
+                "~/AICADBridge/inbox klasörü açılır; dosyayı programına elle içe aktar.")
+    short = SHORT_NAME[host]
+    beta = " (Beta)" if host in BETA_HOSTS else ""
+    return (f"{short} köprüsü{beta} kuruldu: masaüstündeki 'AICADBridge {short}' kısayolunu çalıştır. "
+            "Programı otomatik açmak için pywin32 gerekir; yoksa STEP ~/AICADBridge/inbox klasörüne kaydedilir.")
+
+
+def run_bridge_cli(rest: list[str]) -> int:
+    """`AICADBridgeSetup.exe --bridge <host> [options]`: the desktop bridge without the installer window."""
+    if not rest:
+        print("kullanım: --bridge <" + "|".join(COM_HOSTS) + ">")
+        return 2
+    sys.path.insert(0, str(ROOT / "desktop"))
+    import aicadbridge_desktop
+    return aicadbridge_desktop.main(["--host", rest[0], *rest[1:]])
+
+
 # --------------------------------------------------------------------------- GUI
 
 
@@ -277,7 +489,7 @@ def run_gui() -> None:
     ui_q: queue.Queue = queue.Queue()
     root = tk.Tk()
     root.title("AICADBridge Kurulumu")
-    root.geometry("520x560")
+    root.geometry("540x640")
     root.minsize(520, 520)
     root.configure(bg="#f6f7f9")
     ok_c, warn_c, bad_c, mut_c = "#1a7f37", "#b25e00", "#b42318", "#667085"
@@ -301,8 +513,33 @@ def run_gui() -> None:
             pass
         root.after(100, pump)
 
+    # bottom area first so it stays visible; the scrollable app list takes the remaining space
+    bottom = tk.Frame(root, bg="#f6f7f9")
+    bottom.pack(side="bottom", fill="x")
+    code_var = tk.StringVar()
+    note_var = tk.StringVar()
+    tk.Label(bottom, textvariable=code_var, font=("Consolas", 22, "bold"), fg="#175cd3", bg="#f6f7f9").pack(pady=(8, 0))
+    note_lbl = tk.Label(bottom, textvariable=note_var, font=("Segoe UI", 9), fg=mut_c, bg="#f6f7f9",
+                        wraplength=490, justify="left")
+    note_lbl.pack(padx=16, pady=2)
+    all_btn = ttk.Button(bottom, text="Hepsini kur ve bağla")
+    all_btn.pack(fill="x", padx=16, pady=(8, 10), ipady=6)
+
+    list_wrap = tk.Frame(root, bg="#f6f7f9")
+    list_wrap.pack(side="top", fill="both", expand=True)
+    canvas = tk.Canvas(list_wrap, bg="#f6f7f9", highlightthickness=0)
+    scroll = ttk.Scrollbar(list_wrap, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll.set)
+    scroll.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+    inner = tk.Frame(canvas, bg="#f6f7f9")
+    win = canvas.create_window((0, 0), window=inner, anchor="nw")
+    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+    root.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120) or (-1 if e.delta > 0 else 1), "units"))
+
     for host in HOSTS:
-        card = tk.Frame(root, bg="white", highlightbackground="#e4e7ec", highlightthickness=1)
+        card = tk.Frame(inner, bg="white", highlightbackground="#e4e7ec", highlightthickness=1)
         card.pack(fill="x", padx=16, pady=4)
         lines = tk.Frame(card, bg="white")
         lines.pack(side="left", fill="x", expand=True, padx=10, pady=8)
@@ -314,13 +551,6 @@ def run_gui() -> None:
         btn = ttk.Button(card, text="Kur", width=12)
         btn.pack(side="right", padx=10)
         cards[host] = {"labels": lbls, "button": btn, "conn": "unknown", "status": "missing"}
-
-    code_var = tk.StringVar()
-    note_var = tk.StringVar()
-    tk.Label(root, textvariable=code_var, font=("Consolas", 22, "bold"), fg="#175cd3", bg="#f6f7f9").pack(pady=(8, 0))
-    note_lbl = tk.Label(root, textvariable=note_var, font=("Segoe UI", 9), fg=mut_c, bg="#f6f7f9",
-                        wraplength=480, justify="left")
-    note_lbl.pack(padx=16, pady=2)
 
     def set_note(text, color=mut_c):
         note_var.set(text)
@@ -337,11 +567,16 @@ def run_gui() -> None:
         for host in HOSTS:
             c, d = cards[host], det[host]
             la = c["labels"]
-            la[0].config(text=f"{HOST_LABEL[host]} — " + ("Algılandı ✓" if d["found"] else "Bulunamadı"),
-                         fg=ok_c if d["found"] else mut_c)
+            title = HOST_LABEL[host] + (" (Beta)" if host in BETA_HOSTS else "")
+            if host == "other":
+                la[0].config(text=title, fg=ok_c)
+            else:
+                la[0].config(text=f"{title} — " + ("Algılandı ✓" if d["found"] else "Bulunamadı"),
+                             fg=ok_c if d["found"] else mut_c)
             st = plugin_status(installed_version(target_for(host, det))) if d["found"] else "missing"
-            la[1].config(text="Eklenti — " + {"current": "Kurulu ✓", "outdated": "Güncelleme var",
-                                             "missing": "Kurulu değil"}[st],
+            what = "Eklenti" if host in ("fusion", "blender", "rhino") else "Köprü"
+            la[1].config(text=f"{what} — " + {"current": "Kurulu ✓", "outdated": "Güncelleme var",
+                                              "missing": "Kurulu değil"}[st],
                          fg={"current": ok_c, "outdated": warn_c, "missing": mut_c}[st])
             c["status"] = st
             conn = c["conn"]
@@ -375,29 +610,26 @@ def run_gui() -> None:
         all_btn.config(state="disabled" if v else "normal")
         refresh_static()
 
-    hint_text = tk.Label(root, text="Shift+S → Eklentiler → AICADBridgeLink → Çalıştır", bg="#f6f7f9",
+    hint_text = tk.Label(bottom, text="Shift+S → Eklentiler → AICADBridgeLink → Çalıştır", bg="#f6f7f9",
                          fg=mut_c, font=("Segoe UI", 9))
     hint_open = {"v": False}
 
     def toggle_hint():
         hint_open["v"] = not hint_open["v"]
         if hint_open["v"]:
-            hint_text.pack()
+            hint_text.pack(before=all_btn)
         else:
             hint_text.pack_forget()
 
-    hint_btn = ttk.Button(root, text="Bulamıyor musun?", command=toggle_hint)
+    hint_btn = ttk.Button(bottom, text="Fusion'da bulamıyor musun?", command=toggle_hint)
+
+    def show_hint_btn():
+        hint_btn.pack(pady=(2, 0), before=hint_text if hint_open["v"] else all_btn)
 
     def install_note(host):
+        set_note(install_note_text(host), ok_c)
         if host == "fusion":
-            set_note("Fusion'u yeniden başlat; araç çubuğunda AICADBridge düğmesi görünecek.", ok_c)
-            hint_btn.pack(pady=(2, 0))
-        elif host == "blender":
-            set_note("Blender eklentisi kuruldu. Görünmüyorsa: Düzen › Tercihler › Eklentiler › "
-                     "'AICADBridge Link' kutusunu işaretle.", ok_c)
-        else:
-            set_note("SolidWorks köprüsü kuruldu (masaüstünde 'AICADBridge SolidWorks'). pywin32 gerekir; "
-                     "yoksa modeller ~/AICADBridge/inbox klasörüne STEP olarak kaydedilir.", ok_c)
+            show_hint_btn()
 
     def do_install(host):
         try:
@@ -434,9 +666,11 @@ def run_gui() -> None:
         threading.Thread(target=work, daemon=True).start()
 
     def on_all():
-        targets = [h for h in HOSTS if det[h]["found"]]
+        # "STEP klasörü" is always available, so it is not part of "install everything"
+        targets = [h for h in HOSTS if h != "other" and det[h]["found"]]
         if not targets:
-            set_note("Bu bilgisayarda desteklenen bir CAD programı bulunamadı.", bad_c)
+            set_note("Desteklenen bir CAD programı bulunamadı. Başka bir programın varsa 'STEP klasörü' "
+                     "satırından kurabilirsin.", bad_c)
             return
         set_busy(True)
 
@@ -451,11 +685,9 @@ def run_gui() -> None:
 
     for host in HOSTS:
         cards[host]["button"].config(command=lambda h=host: on_click(h))
-
-    all_btn = ttk.Button(root, text="Hepsini kur ve bağla", command=on_all)
-    all_btn.pack(fill="x", padx=16, pady=(8, 4), ipady=6)
+    all_btn.config(command=on_all)
     if det["fusion"]["found"] and installed_version(target_for("fusion", det)):
-        hint_btn.pack(pady=(2, 0))
+        show_hint_btn()
 
     refresh_static()
     refresh_conn()
@@ -463,5 +695,13 @@ def run_gui() -> None:
     root.mainloop()
 
 
-if __name__ == "__main__":
+def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "--bridge":
+        return run_bridge_cli(argv[1:])
     run_gui()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
