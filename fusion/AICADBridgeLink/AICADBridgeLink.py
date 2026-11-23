@@ -1,6 +1,6 @@
 """AICADBridge Link for Autodesk Fusion 360.
 
-Adds "AICADBridge" buttons (Utilities > Add-ins panel). Pairs with the web app via a device code,
+Adds an "AICADBridge" panel (SOLID tab of the Design workspace; falls back to the Add-ins panel). Pairs with the web app via a device code,
 then long-polls for models sent from the web and imports their STEP as a new component.
 Network runs on a worker thread; Fusion API calls happen on the main thread via a custom event.
 """
@@ -21,7 +21,10 @@ import aicad_link  # noqa: E402  (bundled next to this file)
 EVENT_ID = "AICADBridgeLinkJob"
 CMD_CONNECT = "AICADBridgeLinkConnect"
 CMD_STATUS = "AICADBridgeLinkStatus"
-PANEL_ID = "SolidScriptsAddinsPanel"
+PANEL_ID = "AICADBridgePanel"
+FALLBACK_PANEL_ID = "SolidScriptsAddinsPanel"
+WORKSPACE_ID = "FusionSolidEnvironment"
+TAB_ID = "SolidTab"
 
 _app = None
 _ui = None
@@ -30,6 +33,36 @@ _client = None
 _stop = threading.Event()
 _worker = None
 _pending = {}  # job_id -> threading.Event + result, for main-thread import
+
+
+def _state_text():
+    if _client is not None and _client.paired:
+        return "AICADBridge: bağlı ✓ — web'den gönderilen modeller otomatik açılır."
+    return "AICADBridge: bağlı değil — tıklayıp tarayıcıdan eşleştir."
+
+
+def _refresh_tooltip():
+    try:
+        cmd = _ui.commandDefinitions.itemById(CMD_CONNECT)
+        if cmd:
+            cmd.tooltip = _state_text()
+    except Exception:
+        pass
+
+
+def _find_panel(create):
+    """Own 'AICADBridge' panel in the SOLID tab; falls back to the Add-ins panel."""
+    panel = _ui.allToolbarPanels.itemById(PANEL_ID)
+    if panel or not create:
+        return panel
+    try:
+        ws = _ui.workspaces.itemById(WORKSPACE_ID)
+        tab = ws.toolbarTabs.itemById(TAB_ID) if ws else None
+        if tab:
+            return tab.toolbarPanels.add(PANEL_ID, "AICADBridge", "", False)
+    except Exception:
+        _log(traceback.format_exc(limit=2))
+    return _ui.allToolbarPanels.itemById(FALLBACK_PANEL_ID)
 
 
 def _log(msg):
@@ -129,11 +162,8 @@ class _ConnectExecute(adsk.core.CommandEventHandler):
                 if res == adsk.core.DialogResults.DialogYes:
                     _stop.set()
                     _client.forget()
+                    _refresh_tooltip()
                 return
-            server = _ui.inputBox("AICADBridge sunucu adresi:", "AICADBridge", _client.server)
-            if server[1]:  # cancelled
-                return
-            _client.server = server[0]
             info = _client.start_pairing()
             webbrowser.open(info["verification_url"])
             _ui.messageBox(
@@ -141,6 +171,7 @@ class _ConnectExecute(adsk.core.CommandEventHandler):
                 "Tarayıcıda açılan AICADBridge sayfasında (Entegrasyonlar) bu kodu onaylayın.\n"
                 "Onaydan sonra web'den gönderdiğiniz modeller burada açılır.", "AICADBridge")
             _start_worker(pairing=True)
+            _refresh_tooltip()
         except aicad_link.LinkError as e:
             _ui.messageBox(f"Bağlanılamadı: {e}", "AICADBridge")
         except Exception:
@@ -160,15 +191,21 @@ def run(context):
         _handlers.append(h)
 
         cmd = _ui.commandDefinitions.itemById(CMD_CONNECT) or _ui.commandDefinitions.addButtonDefinition(
-            CMD_CONNECT, "AICADBridge Bağlan", "AICADBridge web hesabına bağlan; web'den gönderilen modelleri içe aktar.")
+            CMD_CONNECT, "AICADBridge", _state_text())
         ch = _ConnectCreated()
         cmd.commandCreated.add(ch)
         _handlers.append(ch)
-        panel = _ui.allToolbarPanels.itemById(PANEL_ID)
+        cmd.tooltip = _state_text()
+        panel = _find_panel(create=True)
         if panel and not panel.controls.itemById(CMD_CONNECT):
-            panel.controls.addCommand(cmd)
+            ctrl = panel.controls.addCommand(cmd)
+            try:
+                ctrl.isPromoted = True
+                ctrl.isPromotedByDefault = True
+            except Exception:
+                pass
 
-        if _client.paired:
+        if _client.paired:  # runOnStartup: resume receiving models without any click
             _start_worker()
     except Exception:
         if _ui:
@@ -178,10 +215,14 @@ def run(context):
 def stop(context):
     try:
         _stop.set()
-        panel = _ui.allToolbarPanels.itemById(PANEL_ID)
-        ctrl = panel.controls.itemById(CMD_CONNECT) if panel else None
-        if ctrl:
-            ctrl.deleteMe()
+        for pid in (PANEL_ID, FALLBACK_PANEL_ID):
+            panel = _ui.allToolbarPanels.itemById(pid)
+            ctrl = panel.controls.itemById(CMD_CONNECT) if panel else None
+            if ctrl:
+                ctrl.deleteMe()
+        own = _ui.allToolbarPanels.itemById(PANEL_ID)
+        if own:
+            own.deleteMe()
         cmd = _ui.commandDefinitions.itemById(CMD_CONNECT)
         if cmd:
             cmd.deleteMe()

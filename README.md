@@ -1,5 +1,14 @@
 # AICADBridge Link — host plugins
 
+## Kurulum (Windows)
+
+1. [AICADBridgeSetup.exe](https://github.com/Bicim/aicadbridge-connectors/releases/latest/download/AICADBridgeSetup.exe) dosyasını indir.
+2. Çift tıkla. **Hepsini kur ve bağla**'ya bas (bilgisayardaki Fusion / Blender / SolidWorks otomatik algılanır).
+3. Açılan tarayıcıda pencerede görünen kodu onayla. Fusion'u yeniden başlat; araç çubuğunda **AICADBridge** düğmesi görünür.
+
+SmartScreen uyarısı çıkarsa: **Daha fazla bilgi → Yine de çalıştır** (exe henüz imzalı değil).
+Fusion'da düğmeyi bulamazsan: Shift+S → Eklentiler → AICADBridgeLink → Çalıştır.
+
 Web'de (AICADBridge Studio) üretilen parametrik modelleri CAD programlarına aktaran ince eklentiler.
 Tüm iş mantığı bulutta; eklentiler yalnızca **dışarı doğru HTTPS** kullanır (port açmaz).
 
@@ -14,7 +23,7 @@ Akış: eklenti `POST /v1/connect/start` ile kod alır → kullanıcı web'de **
 eklenti cihaz anahtarını alır (`~/.aicadbridge/<host>.json`) → `GET /v1/host/jobs/next` uzun yoklama → içe aktar → sonuç bildir.
 Web'den bağlantı kaldırılınca anahtar bir sonraki çağrıda geçersizleşir ve silinir.
 
-Sunucu adresi: varsayılan `http://127.0.0.1:8000` (geliştirme). Fusion bağlanırken sorar, Blender eklenti tercihlerinde,
+Sunucu adresi: varsayılan `https://aicad.92-5-107-17.sslip.io`. Blender eklenti tercihlerinde,
 SolidWorks `--server` ile; ya da `AICAD_API_URL` ortam değişkeni.
 
 ```
