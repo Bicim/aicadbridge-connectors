@@ -18,8 +18,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.2.0"
-DEFAULT_SERVER = os.environ.get("AICAD_API_URL", "http://127.0.0.1:8000")
+VERSION = "0.3.0"
+DEFAULT_SERVER = os.environ.get("AICAD_API_URL", "https://aicad.92-5-107-17.sslip.io")
 
 
 class LinkError(Exception):

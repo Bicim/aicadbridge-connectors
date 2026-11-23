@@ -7,7 +7,7 @@ imported (GLB, metres) into a new collection. Network on a thread, bpy calls on 
 bl_info = {
     "name": "AICADBridge Link",
     "author": "Biçim",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > AICADBridge",
     "description": "Import parametric CAD models generated in AICADBridge",
