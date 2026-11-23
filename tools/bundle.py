@@ -14,7 +14,10 @@ PACKAGES = {
     # zip name: (source dir, folder name inside the zip or "" for flat)
     "AICADBridgeLink-fusion.zip": (ROOT / "fusion" / "AICADBridgeLink", "AICADBridgeLink"),
     "aicadbridge_link-blender.zip": (ROOT / "blender" / "aicadbridge_link", ""),  # extension zips are flat
-    "AICADBridgeLink-solidworks.zip": (ROOT / "solidworks", "AICADBridgeLink"),
+    # generic COM bridge (run.bat <host>); the solidworks name is kept so existing web download links keep working
+    "AICADBridgeLink-desktop.zip": (ROOT / "desktop", "AICADBridgeLink"),
+    "AICADBridgeLink-solidworks.zip": (ROOT / "desktop", "AICADBridgeLink"),
+    "AICADBridgeLink-rhino.zip": (ROOT / "rhino", "AICADBridgeLink"),
 }
 
 

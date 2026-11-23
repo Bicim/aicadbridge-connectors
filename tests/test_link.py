@@ -115,8 +115,12 @@ def test_bundle_zips(tmp_path):
         assert "AICADBridgeLink/AICADBridgeLink.manifest" in names
     with zipfile.ZipFile(made["aicadbridge_link-blender.zip"]) as z:
         assert {"__init__.py", "aicad_link.py", "blender_manifest.toml"} <= set(z.namelist())
-    with zipfile.ZipFile(made["AICADBridgeLink-solidworks.zip"]) as z:
-        assert "AICADBridgeLink/run.bat" in z.namelist()
+    for name in ("AICADBridgeLink-solidworks.zip", "AICADBridgeLink-desktop.zip"):
+        with zipfile.ZipFile(made[name]) as z:
+            assert {"AICADBridgeLink/run.bat", "AICADBridgeLink/aicadbridge_desktop.py",
+                    "AICADBridgeLink/aicad_link.py"} <= set(z.namelist())
+    with zipfile.ZipFile(made["AICADBridgeLink-rhino.zip"]) as z:
+        assert {"AICADBridgeLink/AICADBridgeLink.py", "AICADBridgeLink/aicad_link.py"} <= set(z.namelist())
 
 
 def test_safe_name():
