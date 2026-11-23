@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import threading
 import time
 import webbrowser
 from dataclasses import dataclass
@@ -222,7 +223,6 @@ def message_box(title: str, text: str) -> None:
             ctypes.windll.user32.MessageBoxW(None, text, title, 0x40)  # type: ignore[attr-defined]
         except Exception:
             pass
-    import threading
     threading.Thread(target=show, daemon=True).start()
 
 

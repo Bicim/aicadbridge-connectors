@@ -232,10 +232,10 @@ def test_manifest_and_default_server():
 
 def test_state_file_and_connection_without_network(tmp_path):
     assert s.check_connection("fusion", state_dir=tmp_path) == "disconnected"
-    assert not s.has_token("fusion", state_dir=tmp_path)
-    p = s.state_path("fusion", tmp_path)
+    assert not s.aicad_link.LinkClient("fusion", state_dir=tmp_path).paired
+    p = s.aicad_link.LinkClient("fusion", state_dir=tmp_path).state_path
     p.write_text(json.dumps({"server": "http://127.0.0.1:1", "token": "t", "device_id": "d"}), encoding="utf-8")
-    assert s.has_token("fusion", state_dir=tmp_path)
+    assert s.aicad_link.LinkClient("fusion", state_dir=tmp_path).paired
     assert s.check_connection("fusion", state_dir=tmp_path) == "unreachable"  # closed port, no real network
 
 
@@ -252,7 +252,7 @@ def test_pair_blocking_writes_state(tmp_path, monkeypatch):
     codes, opened = [], []
     assert s.pair_blocking("blender", codes.append, state_dir=tmp_path, open_browser=opened.append, interval=0)
     assert codes == ["ABCD-1234"] and opened == ["https://x/v"]
-    saved = json.loads(s.state_path("blender", tmp_path).read_text(encoding="utf-8"))
+    saved = json.loads(s.aicad_link.LinkClient("blender", state_dir=tmp_path).state_path.read_text(encoding="utf-8"))
     assert saved["token"] == "tok" and saved["device_id"] == "dev"
 
 
@@ -261,3 +261,14 @@ def test_friendly_errors():
     assert "Sunucuya" in s.friendly_error(E(0, "x"))
     assert "süresi" in s.friendly_error(E(410, "gone"))
     assert s.friendly_error(E(403, "Ücretsiz planda 1 cihaz")) == "Ücretsiz planda 1 cihaz"
+
+
+def test_row_status_and_action_text():
+    assert s.status_parts(False, "missing", "disconnected") == [("Bulunamadı", "mute")]
+    assert s.status_parts(True, "current", "connected") == [("Hazır", "ok")]
+    assert s.status_parts(True, "outdated", "unreachable") == [("Güncelleme var", "warn"),
+                                                              ("Sunucuya ulaşılamadı", "warn")]
+    assert s.row_action("missing", "disconnected") == "Kur"
+    assert s.row_action("outdated", "connected") == "Güncelle"
+    assert s.row_action("current", "connected") == "Yeniden bağla"
+    assert s.row_action("current", "disconnected") == "Bağla"
