@@ -261,3 +261,14 @@ def test_friendly_errors():
     assert "Sunucuya" in s.friendly_error(E(0, "x"))
     assert "süresi" in s.friendly_error(E(410, "gone"))
     assert s.friendly_error(E(403, "Ücretsiz planda 1 cihaz")) == "Ücretsiz planda 1 cihaz"
+
+
+def test_row_status_and_action_text():
+    assert s.status_parts(False, "missing", "disconnected") == [("Bulunamadı", "mute")]
+    assert s.status_parts(True, "current", "connected") == [("Hazır", "ok")]
+    assert s.status_parts(True, "outdated", "unreachable") == [("Güncelleme var", "warn"),
+                                                              ("Sunucuya ulaşılamadı", "warn")]
+    assert s.row_action("missing", "disconnected") == "Kur"
+    assert s.row_action("outdated", "connected") == "Güncelle"
+    assert s.row_action("current", "connected") == "Yeniden bağla"
+    assert s.row_action("current", "disconnected") == "Bağla"

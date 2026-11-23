@@ -29,6 +29,7 @@ jobs:
             --hidden-import win32com.client --hidden-import pythoncom --hidden-import pywintypes             --exclude-module pythonwin --exclude-module win32ui --exclude-module win32uiole             --exclude-module pywin --exclude-module dde --exclude-module unittest --exclude-module pydoc             --exclude-module doctest --exclude-module difflib --exclude-module ftplib --exclude-module netrc             --exclude-module csv --exclude-module tracemalloc --exclude-module statistics             --exclude-module decimal --exclude-module bz2 --exclude-module lzma --exclude-module tarfile \
             --add-data "fusion;fusion" --add-data "blender;blender" \
             --add-data "desktop;desktop" --add-data "rhino;rhino" --add-data "common;common" \
+            --add-data "installer/logos;installer/logos" \
             installer/aicadbridge_setup.py
       - name: Build plugin zips
         run: python tools/bundle.py dist/plugins
