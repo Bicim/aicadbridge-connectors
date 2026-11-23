@@ -472,27 +472,234 @@ def run_bridge_cli(rest: list[str]) -> int:
 
 # --------------------------------------------------------------------------- GUI
 
+# design tokens (vault/tasarim-sistemi.md), dark theme
+BG, SURFACE, SURFACE_2 = "#0a0a0b", "#111113", "#17171a"
+LINE, LINE_2 = "#232327", "#2e2e33"
+TEXT_1, TEXT_2, TEXT_3 = "#ededef", "#a1a1aa", "#71717a"
+ACCENT, ACCENT_HOVER, ACCENT_INK = "#00b8d4", "#1ac6e0", "#00161a"
+OK, WARN, ERR = "#3ecf8e", "#f5a524", "#f26d6d"
+
+LOGO_KEYS = ("fusion", "blender", "solidworks", "inventor", "solidedge", "catia", "autocad", "rhino")
+LOGO_DIR = ROOT / "installer" / "logos"
+
+
+def enable_dpi_awareness() -> None:
+    """Crisp text on scaled displays (Windows only; never raises)."""
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
+def status_parts(found: bool, plugin_state: str, conn: str) -> list[tuple[str, str]]:
+    """Row status as [(text, colour name)]: one 'Hazır' when installed and connected, else the pieces."""
+    if not found:
+        return [("Bulunamadı", "mute")]
+    if plugin_state == "current" and conn == "connected":
+        return [("Hazır", "ok")]
+    plugin = {"current": ("Kurulu", "ok"), "outdated": ("Güncelleme var", "warn"),
+              "missing": ("Kurulu değil", "mute")}
+    link = {"connected": ("Bağlı", "ok"), "disconnected": ("Bağlı değil", "mute"),
+            "unreachable": ("Sunucuya ulaşılamadı", "warn"), "unknown": ("Kontrol ediliyor…", "mute")}
+    return [plugin[plugin_state], link[conn]]
+
+
+def row_action(plugin_state: str, conn: str) -> str:
+    if plugin_state == "outdated":
+        return "Güncelle"
+    if plugin_state == "missing":
+        return "Kur"
+    return "Yeniden bağla" if conn == "connected" else "Bağla"
+
 
 def run_gui() -> None:
+    enable_dpi_awareness()
     import tkinter as tk
+    from tkinter import font as tkfont
     from tkinter import ttk
 
     det = detect_all()
     ui_q: queue.Queue = queue.Queue()
     root = tk.Tk()
     root.title("AICADBridge Kurulumu")
-    root.geometry("540x640")
-    root.minsize(520, 520)
-    root.configure(bg="#f6f7f9")
-    ok_c, warn_c, bad_c, mut_c = "#1a7f37", "#b25e00", "#b42318", "#667085"
+    root.configure(bg=BG)
+    scale = max(1.0, root.winfo_fpixels("1i") / 96)
 
-    tk.Label(root, text="AICADBridge Kurulumu", font=("Segoe UI", 16, "bold"), bg="#f6f7f9").pack(pady=(14, 0))
-    tk.Label(root, text=f"Eklenti sürümü {VERSION} · Web'de ürettiğin modeller CAD programına gelsin",
-             font=("Segoe UI", 9), fg=mut_c, bg="#f6f7f9").pack(pady=(0, 8))
+    def S(n: float) -> int:
+        return int(round(n * scale))
 
-    cards = {}
+    root.geometry(f"{S(560)}x{S(480)}")
+    root.minsize(S(520), S(440))
+
+    families = set(tkfont.families())
+    sans = next((f for f in ("Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI") if f in families), "Segoe UI")
+    semi = "Segoe UI Semibold" if "Segoe UI Semibold" in families else sans
+    mono = next((f for f in ("Cascadia Code", "Consolas") if f in families), "Courier New")
+
+    def strong(size):
+        return (semi, size) if semi != sans else (sans, size, "bold")
+
+    f_small, f_name, f_title, f_btn = (sans, 9), strong(10), strong(15), strong(10)
+
+    try:  # dark title bar (Windows 10 20H1+ / 11)
+        import ctypes
+        root.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())  # type: ignore[attr-defined]
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(  # type: ignore[attr-defined]
+            hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+    except Exception:
+        pass
+
+    colours = {"ok": OK, "warn": WARN, "mute": TEXT_3, "err": ERR}
+    images: list = []  # PhotoImage references must stay alive
+    cards: dict = {}
     busy = {"v": False}
 
+    # ---- widgets -----------------------------------------------------------
+    def paint(b, hover=False):
+        off = str(b["state"]) == "disabled"
+        if b.kind == "primary":
+            bg = SURFACE_2 if off else (ACCENT_HOVER if hover else ACCENT)
+            fg, edge = (TEXT_3 if off else ACCENT_INK), bg
+        elif b.kind == "ghost":
+            bg, fg, edge = BG, (TEXT_1 if hover and not off else TEXT_2), BG
+        else:
+            bg = SURFACE_2 if hover and not off else SURFACE
+            fg, edge = (TEXT_3 if off else TEXT_1), (LINE if off else LINE_2)
+        b.config(bg=bg, fg=fg, activebackground=bg, activeforeground=fg, disabledforeground=TEXT_3,
+                 cursor="arrow" if off else "hand2")
+        b.box.config(bg=edge)  # 1px outline: Tk's own button highlight is not drawn reliably on Windows
+
+    def make_button(parent, text, kind="secondary", command=None, width=0):
+        box = tk.Frame(parent, padx=1, pady=1)
+        b = tk.Button(box, text=text, command=command, font=f_btn, relief="flat", bd=0, highlightthickness=0,
+                      padx=S(14), pady=S(6), width=width, takefocus=True)
+        b.pack(fill="both", expand=True)
+        b.kind, b.box = kind, box
+        b.bind("<Enter>", lambda e: paint(b, hover=True))
+        b.bind("<Leave>", lambda e: paint(b))
+        paint(b)
+        return b
+
+    def set_button(b, text=None, enabled=True):
+        if text is not None:
+            b.config(text=text)
+        b.config(state="normal" if enabled else "disabled")
+        paint(b)
+
+    def rrect(c, x0, y0, x1, y1, r, **kw):
+        pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1, x0 + r, y1, x0, y1,
+               x0, y1 - r, x0, y0 + r, x0, y0]
+        return c.create_polygon(pts, smooth=True, **kw)
+
+    def logo_mark(parent, size):
+        c = tk.Canvas(parent, width=size, height=size, bg=BG, highlightthickness=0)
+        rrect(c, 0, 0, size - 1, size - 1, size * 0.28, fill=ACCENT, outline=ACCENT)
+        w = max(2, S(2))
+        c.create_arc(size * 0.2, size * 0.28, size * 0.8, size * 1.0, start=0, extent=180, style="arc",
+                     outline=ACCENT_INK, width=w)
+        c.create_line(size * 0.14, size * 0.64, size * 0.86, size * 0.64, fill=ACCENT_INK, width=w,
+                      capstyle="round")
+        return c
+
+    def load_logo(key):
+        """32 px logo from installer/logos/<key>-64.png, or None (a letter tile is drawn instead)."""
+        try:
+            img = tk.PhotoImage(file=str(LOGO_DIR / f"{key}-64.png"))
+            img = img if scale >= 1.5 else img.subsample(2)
+            images.append(img)
+            return img
+        except Exception:
+            return None
+
+    def host_tile(parent, host):
+        size = S(40)
+        c = tk.Canvas(parent, width=size, height=size, bg=SURFACE, highlightthickness=0)
+        rrect(c, 0, 0, size - 1, size - 1, S(10), fill=SURFACE_2, outline=SURFACE_2)
+        img = load_logo(host) if host in LOGO_KEYS else None
+        if img is not None:
+            c.create_image(size // 2, size // 2, image=img)
+        elif host == "other":  # folder glyph
+            x, y, w, h = size * 0.27, size * 0.34, size * 0.46, size * 0.34
+            c.create_polygon(x, y, x + w * 0.4, y, x + w * 0.5, y + h * 0.18, x + w, y + h * 0.18, x + w, y + h,
+                             x, y + h, outline=TEXT_2, fill="", width=max(1, S(1.5)), joinstyle="round")
+        else:
+            c.create_text(size // 2, size // 2, text=HOST_LABEL[host].split()[-1][:1].upper(), fill=TEXT_2,
+                          font=strong(12))
+        return c
+
+    # ---- layout ------------------------------------------------------------
+    header = tk.Frame(root, bg=BG)
+    header.pack(side="top", fill="x", padx=S(24), pady=(S(24), S(12)))
+    logo_mark(header, S(32)).pack(side="left", padx=(0, S(12)))
+    head_text = tk.Frame(header, bg=BG)
+    head_text.pack(side="left", fill="x")
+    tk.Label(head_text, text="AICADBridge Kurulumu", font=f_title, fg=TEXT_1, bg=BG, anchor="w").pack(fill="x")
+    tk.Label(head_text, text=f"Web'de ürettiğin modeller CAD programına gelsin · sürüm {VERSION}", font=f_small,
+             fg=TEXT_2, bg=BG, anchor="w").pack(fill="x")
+
+    # footer first so it stays visible; the scrollable list takes the remaining space
+    footer = tk.Frame(root, bg=BG)
+    footer.pack(side="bottom", fill="x")
+    tk.Frame(footer, bg=LINE, height=1).pack(fill="x")
+    foot = tk.Frame(footer, bg=BG)
+    foot.pack(fill="x", padx=S(24), pady=(S(12), S(16)))
+    code_var, note_var = tk.StringVar(), tk.StringVar()
+    code_lbl = tk.Label(foot, textvariable=code_var, font=(mono, 20, "bold"), fg=ACCENT, bg=BG)
+    note_lbl = tk.Label(foot, textvariable=note_var, font=f_small, fg=TEXT_2, bg=BG, wraplength=S(500),
+                        justify="left", anchor="w")
+    all_btn = make_button(foot, "Hepsini kur ve bağla", "primary")
+    all_btn.config(pady=S(10))
+    all_btn.box.pack(fill="x")
+
+    list_wrap = tk.Frame(root, bg=BG)
+    list_wrap.pack(side="top", fill="both", expand=True)
+    sb_style = "Vertical.TScrollbar"
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+        sb_style = "Aicad.Vertical.TScrollbar"
+        style.layout(sb_style, [("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
+            ("Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
+        style.configure(sb_style, troughcolor=BG, background=LINE_2, bordercolor=BG, lightcolor=LINE_2,
+                        darkcolor=LINE_2, relief="flat", width=S(8))
+        style.map(sb_style, background=[("active", TEXT_3), ("pressed", TEXT_3)])
+    except tk.TclError:
+        sb_style = "Vertical.TScrollbar"
+    canvas = tk.Canvas(list_wrap, bg=BG, highlightthickness=0)
+    scroll = ttk.Scrollbar(list_wrap, orient="vertical", command=canvas.yview, style=sb_style)
+    canvas.configure(yscrollcommand=scroll.set)
+    scroll.pack(side="right", fill="y", padx=(0, S(6)))
+    canvas.pack(side="left", fill="both", expand=True)
+    inner = tk.Frame(canvas, bg=BG)
+    win = canvas.create_window((0, 0), window=inner, anchor="nw")
+    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+    root.bind_all("<MouseWheel>",
+                  lambda e: canvas.yview_scroll(int(-e.delta / 120) or (-1 if e.delta > 0 else 1), "units"))
+
+    for host in HOSTS:
+        card = tk.Frame(inner, bg=SURFACE, highlightbackground=LINE, highlightcolor=LINE, highlightthickness=1)
+        card.pack(fill="x", padx=(S(24), S(18)), pady=(0, S(8)))
+        body = tk.Frame(card, bg=SURFACE)
+        body.pack(fill="x", padx=S(12), pady=S(12))
+        host_tile(body, host).pack(side="left")
+        btn = make_button(body, "Kur", width=12)
+        btn.box.pack(side="right")
+        text = tk.Frame(body, bg=SURFACE)
+        text.pack(side="left", fill="x", expand=True, padx=S(12))
+        top = tk.Frame(text, bg=SURFACE)
+        top.pack(fill="x")
+        name = tk.Label(top, text=HOST_LABEL[host], font=f_name, fg=TEXT_1, bg=SURFACE, anchor="w")
+        name.pack(side="left")
+        if host in BETA_HOSTS:
+            tk.Label(top, text="Beta", font=f_small, fg=ACCENT, bg=SURFACE).pack(side="left", padx=(S(8), 0))
+        status = tk.Frame(text, bg=SURFACE)
+        status.pack(fill="x", pady=(S(2), 0))
+        cards[host] = {"name": name, "status": status, "button": btn, "conn": "unknown", "state": "missing"}
+
+    # ---- behaviour ---------------------------------------------------------
     def post(fn, *a):
         ui_q.put((fn, a))
 
@@ -505,84 +712,39 @@ def run_gui() -> None:
             pass
         root.after(100, pump)
 
-    # bottom area first so it stays visible; the scrollable app list takes the remaining space
-    bottom = tk.Frame(root, bg="#f6f7f9")
-    bottom.pack(side="bottom", fill="x")
-    code_var = tk.StringVar()
-    note_var = tk.StringVar()
-    tk.Label(bottom, textvariable=code_var, font=("Consolas", 22, "bold"), fg="#175cd3", bg="#f6f7f9").pack(pady=(8, 0))
-    note_lbl = tk.Label(bottom, textvariable=note_var, font=("Segoe UI", 9), fg=mut_c, bg="#f6f7f9",
-                        wraplength=490, justify="left")
-    note_lbl.pack(padx=16, pady=2)
-    all_btn = ttk.Button(bottom, text="Hepsini kur ve bağla")
-    all_btn.pack(fill="x", padx=16, pady=(8, 10), ipady=6)
-
-    list_wrap = tk.Frame(root, bg="#f6f7f9")
-    list_wrap.pack(side="top", fill="both", expand=True)
-    canvas = tk.Canvas(list_wrap, bg="#f6f7f9", highlightthickness=0)
-    scroll = ttk.Scrollbar(list_wrap, orient="vertical", command=canvas.yview)
-    canvas.configure(yscrollcommand=scroll.set)
-    scroll.pack(side="right", fill="y")
-    canvas.pack(side="left", fill="both", expand=True)
-    inner = tk.Frame(canvas, bg="#f6f7f9")
-    win = canvas.create_window((0, 0), window=inner, anchor="nw")
-    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
-    root.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120) or (-1 if e.delta > 0 else 1), "units"))
-
-    for host in HOSTS:
-        card = tk.Frame(inner, bg="white", highlightbackground="#e4e7ec", highlightthickness=1)
-        card.pack(fill="x", padx=16, pady=4)
-        lines = tk.Frame(card, bg="white")
-        lines.pack(side="left", fill="x", expand=True, padx=10, pady=8)
-        lbls = []
-        for i in range(3):
-            lb = tk.Label(lines, text="", anchor="w", bg="white", font=("Segoe UI", 10, "bold" if i == 0 else "normal"))
-            lb.pack(fill="x")
-            lbls.append(lb)
-        btn = ttk.Button(card, text="Kur", width=12)
-        btn.pack(side="right", padx=10)
-        cards[host] = {"labels": lbls, "button": btn, "conn": "unknown", "status": "missing"}
-
-    def set_note(text, color=mut_c):
+    def set_note(text, color="plain"):
         note_var.set(text)
-        note_lbl.config(fg=color)
+        note_lbl.config(fg=colours.get(color, TEXT_2))
+        note_lbl.pack_forget()
+        if text:
+            note_lbl.pack(fill="x", pady=(0, S(8)), before=all_btn.box)
 
     def show_code(code):
         code_var.set(code)
+        code_lbl.pack(anchor="w", before=note_lbl if note_lbl.winfo_manager() else all_btn.box)
         set_note(f"Tarayıcıda bu kodu onayla: {code}")
 
     def clear_code():
         code_var.set("")
+        code_lbl.pack_forget()
+
+    def set_status(host, parts):
+        box = cards[host]["status"]
+        for w in box.winfo_children():
+            w.destroy()
+        for n, (txt, col) in enumerate(parts):
+            if n:
+                tk.Label(box, text="·", font=f_small, fg=TEXT_3, bg=SURFACE).pack(side="left", padx=S(4))
+            tk.Label(box, text=txt, font=f_small, fg=colours[col], bg=SURFACE).pack(side="left")
 
     def refresh_static():
         for host in HOSTS:
             c, d = cards[host], det[host]
-            la = c["labels"]
-            title = HOST_LABEL[host] + (" (Beta)" if host in BETA_HOSTS else "")
-            if host == "other":
-                la[0].config(text=title, fg=ok_c)
-            else:
-                la[0].config(text=f"{title} — " + ("Algılandı ✓" if d["found"] else "Bulunamadı"),
-                             fg=ok_c if d["found"] else mut_c)
             st = plugin_status(installed_version(target_for(host, det))) if d["found"] else "missing"
-            what = "Eklenti" if host in ("fusion", "blender", "rhino") else "Köprü"
-            la[1].config(text=f"{what} — " + {"current": "Kurulu ✓", "outdated": "Güncelleme var",
-                                              "missing": "Kurulu değil"}[st],
-                         fg={"current": ok_c, "outdated": warn_c, "missing": mut_c}[st])
-            c["status"] = st
-            conn = c["conn"]
-            la[2].config(text="Bağlantı — " + {"connected": "Bağlı ✓", "disconnected": "Bağlı değil",
-                                              "unreachable": "Sunucuya ulaşılamadı",
-                                              "unknown": "Kontrol ediliyor…"}[conn],
-                         fg=ok_c if conn == "connected" else mut_c)
-            if st == "outdated":
-                text = "Güncelle"
-            elif st == "missing":
-                text = "Kur"
-            else:
-                text = "Yeniden bağla" if conn == "connected" else "Bağla"
-            c["button"].config(text=text, state="normal" if d["found"] and not busy["v"] else "disabled")
+            c["state"] = st
+            c["name"].config(fg=TEXT_1 if d["found"] else TEXT_3)
+            set_status(host, status_parts(d["found"], st, c["conn"]))
+            set_button(c["button"], row_action(st, c["conn"]), d["found"] and not busy["v"])
 
     def set_conn(h, res):
         cards[h]["conn"] = res
@@ -599,27 +761,28 @@ def run_gui() -> None:
 
     def set_busy(v):
         busy["v"] = v
-        all_btn.config(state="disabled" if v else "normal")
+        set_button(all_btn, enabled=not v)
         refresh_static()
 
-    hint_text = tk.Label(bottom, text="Shift+S → Eklentiler → AICADBridgeLink → Çalıştır", bg="#f6f7f9",
-                         fg=mut_c, font=("Segoe UI", 9))
+    hint_text = tk.Label(foot, text="Shift+S → Eklentiler → AICADBridgeLink → Çalıştır", bg=BG, fg=TEXT_2,
+                         font=f_small)
     hint_open = {"v": False}
 
     def toggle_hint():
         hint_open["v"] = not hint_open["v"]
         if hint_open["v"]:
-            hint_text.pack(before=all_btn)
+            hint_text.pack(before=all_btn.box, pady=(0, S(8)))
         else:
             hint_text.pack_forget()
 
-    hint_btn = ttk.Button(bottom, text="Fusion'da bulamıyor musun?", command=toggle_hint)
+    hint_btn = make_button(foot, "Fusion'da bulamıyor musun?", "ghost", toggle_hint)
+    hint_btn.config(padx=0, pady=S(2))
 
     def show_hint_btn():
-        hint_btn.pack(pady=(2, 0), before=hint_text if hint_open["v"] else all_btn)
+        hint_btn.box.pack(anchor="w", pady=(0, S(4)), before=hint_text if hint_open["v"] else all_btn.box)
 
     def install_note(host):
-        set_note(install_note_text(host), ok_c)
+        set_note(install_note_text(host), "ok")
         if host == "fusion":
             show_hint_btn()
 
@@ -628,7 +791,7 @@ def run_gui() -> None:
             install_host(host, det)
             post(install_note, host)
         except Exception as e:
-            post(set_note, f"Kurulum başarısız ({HOST_LABEL[host]}): {friendly_error(e)}", bad_c)
+            post(set_note, f"Kurulum başarısız ({HOST_LABEL[host]}): {friendly_error(e)}", "err")
 
     def do_pair(host):
         try:
@@ -636,12 +799,12 @@ def run_gui() -> None:
             okp = pair_blocking(host, lambda c: post(show_code, c))
             post(clear_code)
             if okp:
-                post(set_note, f"{HOST_LABEL[host]} bağlandı ✓", ok_c)
+                post(set_note, f"{HOST_LABEL[host]} bağlandı", "ok")
             else:
-                post(set_note, "Kodun süresi doldu. Tekrar dene.", bad_c)
+                post(set_note, "Kodun süresi doldu. Tekrar dene.", "err")
         except Exception as e:
             post(clear_code)
-            post(set_note, friendly_error(e), bad_c)
+            post(set_note, friendly_error(e), "err")
 
     def finish():
         post(det.update, detect_all())
@@ -649,7 +812,7 @@ def run_gui() -> None:
         post(refresh_conn)
 
     def on_click(host):
-        st = cards[host]["status"]
+        st = cards[host]["state"]
         set_busy(True)
 
         def work():
@@ -662,7 +825,7 @@ def run_gui() -> None:
         targets = [h for h in HOSTS if h != "other" and det[h]["found"]]
         if not targets:
             set_note("Desteklenen bir CAD programı bulunamadı. Başka bir programın varsa 'STEP klasörü' "
-                     "satırından kurabilirsin.", bad_c)
+                     "satırından kurabilirsin.", "err")
             return
         set_busy(True)
 
