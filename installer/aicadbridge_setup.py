@@ -473,11 +473,11 @@ def run_bridge_cli(rest: list[str]) -> int:
 # --------------------------------------------------------------------------- GUI
 
 # design tokens (vault/tasarim-sistemi.md), dark theme
-BG, SURFACE, SURFACE_2 = "#0a0a0b", "#111113", "#17171a"
-LINE, LINE_2 = "#232327", "#2e2e33"
-TEXT_1, TEXT_2, TEXT_3 = "#ededef", "#a1a1aa", "#71717a"
-ACCENT, ACCENT_HOVER, ACCENT_INK = "#00b8d4", "#1ac6e0", "#00161a"
-OK, WARN, ERR = "#3ecf8e", "#f5a524", "#f26d6d"
+BG, SURFACE, SURFACE_2 = "#07090c", "#0d1015", "#131720"
+LINE, LINE_2 = "#1d232d", "#2a313d"
+TEXT_1, TEXT_2, TEXT_3 = "#e9eef5", "#9ba5b4", "#758091"
+ACCENT, ACCENT_HOVER, ACCENT_INK = "#00b8d4", "#1fc7e1", "#001418"
+OK, WARN, ERR = "#3ecf8e", "#eab308", "#f26d6d"
 
 LOGO_KEYS = ("fusion", "blender", "solidworks", "inventor", "solidedge", "catia", "autocad", "rhino")
 LOGO_DIR = ROOT / "installer" / "logos"
@@ -533,9 +533,9 @@ def run_gui() -> None:
     root.minsize(S(520), S(440))
 
     families = set(tkfont.families())
-    sans = next((f for f in ("Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI") if f in families), "Segoe UI")
+    sans = next((f for f in ("Segoe UI Variable Text", "Segoe UI") if f in families), "Segoe UI")
     semi = "Segoe UI Semibold" if "Segoe UI Semibold" in families else sans
-    mono = next((f for f in ("Cascadia Code", "Consolas") if f in families), "Courier New")
+    mono = next((f for f in ("Cascadia Mono", "Consolas") if f in families), "Courier New")
 
     def strong(size):
         return (semi, size) if semi != sans else (sans, size, "bold")
