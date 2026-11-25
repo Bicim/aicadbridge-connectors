@@ -7,6 +7,7 @@
 3. Açılan tarayıcıda pencerede görünen kodu onayla. Fusion'u yeniden başlat; araç çubuğunda **AICADBridge** düğmesi görünür.
 
 SmartScreen uyarısı çıkarsa: **Daha fazla bilgi → Yine de çalıştır** (exe henüz imzalı değil).
+Chrome/Edge "güvenli olarak indirilmiyor" derse: indirmeler listesinde **Sakla / Keep** seç. Exe imzasız ve yeni olduğu için itibar uyarısı normaldir; Defender taraması temizdir. Doğrulamak için sürümdeki `SHA256SUMS.txt` ile karşılaştır (`certutil -hashfile AICADBridgeSetup.exe SHA256`). Tek dosyalı exe yerine `AICADBridgeSetup-portable.zip` (klasör sürümü) da çalışır; exe yönetici izni istemez.
 Fusion'da düğmeyi bulamazsan: Shift+S → Eklentiler → AICADBridgeLink → Çalıştır.
 
 Web'de (AICADBridge Studio) üretilen parametrik modelleri CAD programlarına aktaran ince eklentiler.
